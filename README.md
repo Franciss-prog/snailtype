@@ -1,6 +1,5 @@
+<img src="./snailtype-logo.png" alt="SnailType logo" width="100">
 # SnailType
-
-<img src="./snailtype-logo.png" alt="SnailType logo" width="400">
 
 A realtime multiplayer typing race where players compete by guiding their snails to the finish line.
 
