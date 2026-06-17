@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { socket } from '$lib/socket';
 	import { gameState } from '$lib/stores/game.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
+	import { getRoomState, sendAction } from '$lib/api';
 	import { Copy, Crown } from 'lucide-svelte';
 
 	let copied = $state(false);
@@ -15,51 +15,52 @@
 		setTimeout(() => (copied = false), 2000);
 	}
 
-	function startRace() {
-		socket.emit('start_race');
+	async function startRace() {
+		await sendAction(roomCode!, { type: 'start_race', playerId: gameState.playerId });
 	}
 
-	function leaveRoom() {
-		socket.emit('leave_room');
+	async function leaveRoom() {
+		await sendAction(roomCode!, { type: 'leave_room', playerId: gameState.playerId });
 		goto('/');
 	}
 
-	function handleError({ message }: { message: string }) {
-		gameState.error = message;
+	function setTextLength(length: 'short' | 'medium' | 'long') {
+		sendAction(roomCode!, { type: 'set_text_length', playerId: gameState.playerId, textLength: length });
+	}
+
+	function setError(msg: string) {
+		gameState.error = msg;
 		setTimeout(() => (gameState.error = ''), 4000);
 	}
 
 	onMount(() => {
-		socket.connect();
-		socket.emit('join_room', { nickname: gameState.nickname, code: roomCode! });
+		const pollingInterval = setInterval(async () => {
+			const room = await getRoomState(roomCode!);
+			if (!room) {
+				setError('Room not found');
+				clearInterval(pollingInterval);
+				return;
+			}
 
-		socket.on('error', handleError);
-		socket.on('room_updated', ({ room }) => {
-			gameState.isHost = room.hostId === socket.id;
+			gameState.isHost = room.hostId === gameState.playerId;
 			gameState.hostId = room.hostId;
 			gameState.players = room.players;
 			gameState.rematchVotes = room.rematchVotes;
-			gameState.textLength = room.textLength;
-		});
-		socket.on('player_joined', ({ room }) => {
-			gameState.players = room.players;
-		});
-		socket.on('player_left', ({ room }) => {
-			gameState.players = room.players;
-		});
-		socket.on('countdown_started', ({ countdown }) => {
-			gameState.countdown = countdown;
-			gameState.roomState = 'countdown';
-			goto(`/room/${roomCode!}/race`);
-		});
+			gameState.textLength = room.textLength as 'short' | 'medium' | 'long';
+			gameState.countdown = room.countdownStartedAt
+				? Math.max(0, 3 - Math.floor((Date.now() - room.countdownStartedAt) / 1000))
+				: 0;
+			gameState.countdownStartedAt = room.countdownStartedAt;
+			gameState.raceStartedAt = room.startTime;
 
-		return () => {
-			socket.off('error', handleError);
-			socket.off('room_updated');
-			socket.off('player_joined');
-			socket.off('player_left');
-			socket.off('countdown_started');
-		};
+			if (room.state === 'countdown') {
+				gameState.roomState = 'countdown';
+				gameState.raceText = room.text;
+				goto(`/room/${roomCode!}/race`, { replaceState: true });
+			}
+		}, 500);
+
+		return () => clearInterval(pollingInterval);
 	});
 </script>
 
@@ -94,19 +95,19 @@
 		<div class="flex flex-col items-center gap-3">
 			<div class="flex gap-2 text-xs">
 				<button
-					onclick={() => socket.emit('set_text_length', 'short')}
+					onclick={() => setTextLength('short')}
 					class="border border-[#555555] text-[#555555] px-3 py-1 uppercase hover:border-[#7ab648] hover:text-[#7ab648] transition-colors"
 					class:border-[#7ab648]={gameState.textLength === 'short'}
 					class:text-[#7ab648]={gameState.textLength === 'short'}
 				>SHORT</button>
 				<button
-					onclick={() => socket.emit('set_text_length', 'medium')}
+					onclick={() => setTextLength('medium')}
 					class="border border-[#555555] text-[#555555] px-3 py-1 uppercase hover:border-[#7ab648] hover:text-[#7ab648] transition-colors"
 					class:border-[#7ab648]={gameState.textLength === 'medium'}
 					class:text-[#7ab648]={gameState.textLength === 'medium'}
 				>MEDIUM</button>
 				<button
-					onclick={() => socket.emit('set_text_length', 'long')}
+					onclick={() => setTextLength('long')}
 					class="border border-[#555555] text-[#555555] px-3 py-1 uppercase hover:border-[#7ab648] hover:text-[#7ab648] transition-colors"
 					class:border-[#7ab648]={gameState.textLength === 'long'}
 					class:text-[#7ab648]={gameState.textLength === 'long'}
