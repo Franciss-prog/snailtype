@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { socket } from '$lib/socket';
 	import { gameState } from '$lib/stores/game.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
+	import { getRoomState, sendAction } from '$lib/api';
 	import { calcWpm, calcAccuracy } from '$lib/utils/wpm';
 	import { Crown, RotateCcw, LogOut } from 'lucide-svelte';
 
@@ -18,6 +18,7 @@
 	let countdownValue = $state(3);
 	let startTime = $state(0);
 	let timerInterval: ReturnType<typeof setInterval> | undefined;
+	let pollingInterval: ReturnType<typeof setInterval> | undefined;
 
 	const raceText = $derived(gameState.raceText);
 	const totalChars = $derived(raceText.length);
@@ -41,7 +42,7 @@
 		return '\u2588'.repeat(filled) + '\u2591'.repeat(empty);
 	}
 
-	function handleInput(e: Event) {
+	async function handleInput(e: Event) {
 		if (racePhase !== 'racing') return;
 		const input = e.target as HTMLInputElement;
 		const val = input.value;
@@ -63,14 +64,21 @@
 		typedText = val;
 
 		if (currentIndex === totalChars) {
-			socket.emit('finish_race', { wpm, accuracy });
+			await sendAction(gameState.roomCode, {
+				type: 'finish_race',
+				playerId: gameState.playerId,
+				wpm,
+				accuracy,
+			});
 			return;
 		}
 
 		const now = Date.now();
 		if (now - lastProgressEmit >= 100) {
 			lastProgressEmit = now;
-			socket.emit('progress_update', {
+			sendAction(gameState.roomCode, {
+				type: 'progress_update',
+				playerId: gameState.playerId,
 				progress: Math.round((currentIndex / totalChars) * 100),
 				wpm,
 				accuracy,
@@ -84,92 +92,59 @@
 		}
 	});
 
-	function handleRematch() {
-		socket.emit('rematch_vote');
+	async function handleRematch() {
+		await sendAction(gameState.roomCode, { type: 'rematch_vote', playerId: gameState.playerId });
 	}
 
-	function handleSurrender() {
-		socket.emit('surrender');
+	async function handleSurrender() {
+		await sendAction(gameState.roomCode, { type: 'surrender', playerId: gameState.playerId });
 	}
 
-	function handleLeave() {
-		socket.emit('leave_room');
+	async function handleLeave() {
+		await sendAction(gameState.roomCode, { type: 'leave_room', playerId: gameState.playerId });
 		goto('/');
 	}
 
 	onMount(() => {
 		const code = $page.params.code;
-		socket.connect();
 
-		socket.on('countdown_started', ({ countdown }) => {
-			racePhase = 'countdown';
-			countdownValue = countdown;
-		});
+		if (!code) return;
+		pollingInterval = setInterval(async () => {
+			const room = await getRoomState(code);
+			if (!room) return;
 
-		socket.on('race_started', ({ text, startTime: st }) => {
-			gameState.raceText = text;
-			startTime = st;
-			racePhase = 'racing';
-			typedText = '';
-			currentIndex = 0;
-			correctChars = 0;
-			errors = 0;
-			elapsedMs = 0;
-			lastProgressEmit = 0;
-			gameState.roomState = 'racing';
-
-			timerInterval = setInterval(() => {
-				elapsedMs = Date.now() - startTime;
-			}, 100);
-		});
-
-		socket.on('player_progress', ({ playerId, progress: p, wpm: w, accuracy: a, finished, position, surrendered }) => {
-			const idx = gameState.players.findIndex((pl) => pl.id === playerId);
-			if (idx !== -1) {
-				gameState.players[idx] = {
-					...gameState.players[idx],
-					progress: p,
-					wpm: w,
-					accuracy: a,
-					finished,
-					position,
-					surrendered: !!surrendered,
-				};
-				gameState.players = gameState.players;
-			}
-		});
-
-		socket.on('race_finished', ({ results }) => {
-			racePhase = 'results';
-			if (timerInterval) clearInterval(timerInterval);
-			gameState.results = results;
-			gameState.roomState = 'results';
-		});
-
-		socket.on('rematch_started', ({ room }) => {
-			racePhase = 'countdown';
-			countdownValue = 3;
 			gameState.players = room.players;
-			gameState.raceText = room.text;
-			gameState.roomState = 'countdown';
-			typedText = '';
-			currentIndex = 0;
-			correctChars = 0;
-			errors = 0;
-		});
-
-		socket.on('room_updated', ({ room }) => {
 			gameState.rematchVotes = room.rematchVotes;
-		});
+
+			if (room.state === 'racing' && racePhase === 'countdown') {
+				startTime = room.startTime || Date.now();
+				racePhase = 'racing';
+				gameState.roomState = 'racing';
+
+				timerInterval = setInterval(() => {
+					elapsedMs = Date.now() - startTime;
+				}, 100);
+			}
+
+			if (room.state === 'countdown' && room.countdownStartedAt) {
+				const remaining = Math.max(0, 3 - Math.floor((Date.now() - room.countdownStartedAt) / 1000));
+				countdownValue = remaining;
+				racePhase = 'countdown';
+			}
+
+			if (room.state === 'results' && racePhase !== 'results') {
+				racePhase = 'results';
+				if (timerInterval) clearInterval(timerInterval);
+				gameState.roomState = 'results';
+				const results = Array.from(room.players)
+					.sort((a, b) => (a.position || 99) - (b.position || 99));
+				gameState.results = results;
+			}
+		}, 100);
 
 		return () => {
 			if (timerInterval) clearInterval(timerInterval);
-			socket.off('countdown_started');
-			socket.off('race_started');
-			socket.off('player_progress');
-			socket.off('race_finished');
-			socket.off('rematch_started');
-			socket.off('room_updated');
+			if (pollingInterval) clearInterval(pollingInterval);
 		};
 	});
 </script>
@@ -193,7 +168,7 @@
 
 			<div class="border border-[#555555] p-3 mb-4 space-y-1.5">
 				{#each gameState.players as player}
-					{@const isMe = player.id === socket.id}
+					{@const isMe = player.id === gameState.playerId}
 					{@const track = renderTrack(player.finished ? 100 : player.progress)}
 					<div class="flex items-center gap-2 text-sm" class:text-[#7ab648]={isMe} class:text-[#ef4444]={player.surrendered}>
 						<span class="min-w-[12ch] truncate">{player.nickname}</span>

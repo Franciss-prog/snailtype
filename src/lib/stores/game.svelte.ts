@@ -12,6 +12,7 @@ type Player = {
 
 export const gameState = $state({
   nickname: '',
+  playerId: '',
   roomCode: '',
   isHost: false,
   hostId: '',
@@ -20,6 +21,8 @@ export const gameState = $state({
   raceText: '',
   textLength: 'medium' as 'short' | 'medium' | 'long',
   countdown: 0,
+  countdownStartedAt: null as number | null,
+  raceStartedAt: null as number | null,
   myProgress: 0,
   myWpm: 0,
   myAccuracy: 0,
