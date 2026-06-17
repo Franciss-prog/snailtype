@@ -1,4 +1,6 @@
-# SnailType 🐌
+# SnailType
+
+<image src="https://chatgpt.com/backend-api/estuary/content?id=file_0000000067487208b926271460582007&ts=494905&p=fs&cid=1&sig=4b9d5824b06ffa7760bff8fc127b2a9d1856c22f942b664b27c10982e6bf5e42&v=f0f0f0" alt="logo">
 
 A realtime multiplayer typing race where players compete by guiding their snails to the finish line.
 

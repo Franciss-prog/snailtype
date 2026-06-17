@@ -1,3 +1,25 @@
 @import 'tailwindcss';
-@plugin '@tailwindcss/forms';
-@plugin '@tailwindcss/typography';
+
+:root {
+  --bg: #1e1e1e;
+  --surface: #2c2c2c;
+  --accent: #7ab648;
+  --muted: #555555;
+  --fg: #f0f0f0;
+  --error: #ef4444;
+}
+
+* {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--fg);
+  min-height: 100vh;
+}
+
+::selection {
+  background-color: var(--accent);
+  color: var(--bg);
+}
