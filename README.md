@@ -5,7 +5,7 @@
 
 A realtime multiplayer typing race where players compete by guiding their snails to the finish line.
 
-SnailType is a WebSocket-powered project built to explore realtime communication, room management, live synchronization, and multiplayer game mechanics using **SvelteKit** and **Neon**. No accounts required — just create a room, share the code, and start racing.
+SnailType is a WebSocket-powered project built to explore realtime communication, room management, live synchronization, and multiplayer game mechanics using **SvelteKit** and **TailwindCSS**. No accounts required — just create a room, share the code, and start racing.
 
 ---
 
